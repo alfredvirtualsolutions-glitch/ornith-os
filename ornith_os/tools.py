@@ -1,15 +1,12 @@
 """Tool registry and dispatch for Ornith OS.
 
-Ornith-1.0 emits well-formed OpenAI-style ``tool_calls``; this module defines
-the tools the model may call and executes them. Tools come in two flavours:
+Ornith-1.0 emits OpenAI-style ``tool_calls``; this module defines the tools and
+executes them. Local tools (``get_time``, ``calculate``) are self-contained;
+orchestration tools (``spawn_agent``, ``send_to_agent``, ``list_agents``) reach
+back into the runtime through callables injected via ``ctx``.
 
-* **Local tools** are pure and self-contained (``get_time``, ``calculate``).
-* **Orchestration tools** reach back into the runtime through callables the
-  Agent Durable Object injects via ``ctx`` (``spawn_agent``, ``send_to_agent``,
-  ``list_agents``). This keeps tools.py free of any Durable Object imports.
-
-``dispatch()`` always returns a string — the tool result that gets appended to
-the conversation as a ``role: "tool"`` message.
+``dispatch()`` always returns a string — the tool result appended to the
+conversation as a ``role: "tool"`` message.
 """
 
 import ast
@@ -17,7 +14,6 @@ import datetime
 import json
 import operator
 
-# OpenAI-compatible tool definitions advertised to the model.
 TOOLS = [
     {
         "type": "function",
@@ -35,10 +31,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "The arithmetic expression to evaluate.",
-                    }
+                    "expression": {"type": "string", "description": "The expression."}
                 },
                 "required": ["expression"],
             },
@@ -48,22 +41,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "spawn_agent",
-            "description": (
-                "Spawn a new specialized sub-agent in the OS and give it a task. "
-                "Returns the new agent's id."
-            ),
+            "description": "Spawn a new specialized sub-agent and optionally give it a task.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Short name for the agent."},
-                    "instructions": {
-                        "type": "string",
-                        "description": "The system instructions / role for the new agent.",
-                    },
-                    "task": {
-                        "type": "string",
-                        "description": "An optional first task to send to the agent.",
-                    },
+                    "name": {"type": "string"},
+                    "instructions": {"type": "string"},
+                    "task": {"type": "string"},
                 },
                 "required": ["name", "instructions"],
             },
@@ -94,9 +78,6 @@ TOOLS = [
     },
 ]
 
-
-# --- Safe arithmetic evaluator -------------------------------------------------
-
 _OPERATORS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -124,51 +105,26 @@ def _safe_eval(node):
 
 def _calculate(expression):
     try:
-        tree = ast.parse(str(expression), mode="eval")
-        return str(_safe_eval(tree))
+        return str(_safe_eval(ast.parse(str(expression), mode="eval")))
     except (ValueError, SyntaxError, TypeError, ZeroDivisionError) as exc:
         return f"error: {exc}"
 
 
-# --- Dispatch ------------------------------------------------------------------
-
-
-async def dispatch(name, arguments, ctx):
-    """Execute tool ``name`` with ``arguments`` (a dict). Returns a string.
-
-    ``ctx`` provides orchestration callables injected by the Agent DO:
-    ``spawn_agent(name, instructions, task) -> str``,
-    ``send_to_agent(agent_id, message) -> str``, and
-    ``list_agents() -> list``.
-    """
+def dispatch(name, arguments, ctx):
+    """Execute tool ``name`` with ``arguments`` (a dict). Returns a string."""
     args = arguments or {}
 
     if name == "get_time":
         return datetime.datetime.now(datetime.timezone.utc).isoformat()
-
     if name == "calculate":
         return _calculate(args.get("expression", ""))
-
     if name == "spawn_agent":
         spawn = ctx.get("spawn_agent")
-        if not spawn:
-            return "error: orchestration unavailable"
-        return await spawn(
-            args.get("name", "agent"),
-            args.get("instructions", ""),
-            args.get("task"),
-        )
-
+        return spawn(args.get("name", "agent"), args.get("instructions", ""), args.get("task")) if spawn else "error: orchestration unavailable"
     if name == "send_to_agent":
         send = ctx.get("send_to_agent")
-        if not send:
-            return "error: orchestration unavailable"
-        return await send(args.get("agent_id", ""), args.get("message", ""))
-
+        return send(args.get("agent_id", ""), args.get("message", "")) if send else "error: orchestration unavailable"
     if name == "list_agents":
         lister = ctx.get("list_agents")
-        if not lister:
-            return "error: orchestration unavailable"
-        return json.dumps(await lister())
-
+        return json.dumps(lister()) if lister else "error: orchestration unavailable"
     return f"error: unknown tool '{name}'"

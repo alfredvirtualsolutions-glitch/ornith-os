@@ -201,3 +201,9 @@ dist
 # Python
 __pycache__/
 *.pyc
+
+# Vercel / env
+.vercel
+.env
+.env.*
+!.env.example
