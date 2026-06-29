@@ -1,8 +1,8 @@
 /**
  * Ornith OS dashboard frontend.
  *
- * Talks to the Worker JSON API. Every request carries ?agent_id= so the Worker
- * routes it to the right Agent Durable Object. The default agent is "main".
+ * Talks to the FastAPI JSON API on Vercel. Every request carries ?agent_id= so
+ * the backend routes it to the right agent (state in Neon). Default agent: "main".
  */
 
 const SESSION_ID = "web";
