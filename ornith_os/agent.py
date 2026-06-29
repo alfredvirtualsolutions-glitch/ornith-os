@@ -8,6 +8,7 @@ cron-driven scheduled tasks.
 
 import json
 import time
+import uuid
 
 from . import db, model, tools
 
@@ -79,7 +80,8 @@ def _save(agent_id, session_id, role, content, reasoning=""):
 
 
 def spawn_agent(name, instructions, task=None):
-    agent_id = f"{_slugify(name)}-{_now_ms() % 100000}"
+    # Collision-resistant id (same-name agents in the same ms must not clash).
+    agent_id = f"{_slugify(name)[:48]}-{uuid.uuid4().hex[:12]}"
     db.execute(
         "INSERT INTO agents (agent_id, name, instructions, created_at) "
         "VALUES (%s, %s, %s, %s)",
@@ -87,7 +89,7 @@ def spawn_agent(name, instructions, task=None):
     )
     set_config(agent_id, name=name, instructions=instructions)
     if task:
-        run(agent_id, "inbox", task, persist=False)
+        run(agent_id, "inbox", task)
     return agent_id
 
 
@@ -98,7 +100,7 @@ def list_agents():
 def send_to_agent(agent_id, message):
     if not db.first("SELECT 1 AS ok FROM agents WHERE agent_id = %s", (agent_id,)):
         return f"error: unknown agent '{agent_id}'"
-    return run(agent_id, "inbox", message, persist=False)["content"]
+    return run(agent_id, "inbox", message)["content"]
 
 
 # --- the model loop ----------------------------------------------------------
@@ -164,7 +166,12 @@ def run(agent_id, session_id, user_message, persist=True):
 
 
 def schedule_task(agent_id, prompt, every_minutes, session_id="scheduled"):
-    every = int(every_minutes)
+    try:
+        every = int(every_minutes)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("every_minutes must be a positive integer") from exc
+    if every <= 0:
+        raise ValueError("every_minutes must be a positive integer")
     db.execute(
         "INSERT INTO tasks (agent_id, prompt, every_minutes, next_run, session_id, created_at) "
         "VALUES (%s, %s, %s, %s, %s, %s)",
@@ -178,11 +185,17 @@ def list_tasks(agent_id):
 
 def run_due_tasks():
     now = _now_ms()
-    due = db.query("SELECT * FROM tasks WHERE next_run <= %s", (now,))
+    # Atomically claim due tasks (advance next_run) so concurrent ticks — the
+    # Vercel cron and a manual /api/tick — never run the same task twice.
+    with db.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tasks "
+                "SET next_run = %s + (every_minutes::BIGINT * 60000) "
+                "WHERE next_run <= %s RETURNING *",
+                (now, now),
+            )
+            due = [dict(row) for row in cur.fetchall()]
     for task in due:
         run(task["agent_id"], task["session_id"], task["prompt"])
-        db.execute(
-            "UPDATE tasks SET next_run = %s WHERE id = %s",
-            (now + task["every_minutes"] * 60_000, task["id"]),
-        )
     return len(due)

@@ -78,6 +78,12 @@ TOOLS = [
     },
 ]
 
+# Guardrails so a prompted tool call can't exhaust CPU/memory (e.g. huge powers).
+_MAX_EXPRESSION_LENGTH = 200
+_MAX_AST_NODES = 50
+_MAX_ABS_RESULT = 1_000_000_000_000
+_MAX_EXPONENT = 64
+
 _OPERATORS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -91,22 +97,38 @@ _OPERATORS = {
 }
 
 
+def _check_result(value):
+    if isinstance(value, (int, float)) and abs(value) > _MAX_ABS_RESULT:
+        raise ValueError("result too large")
+    return value
+
+
 def _safe_eval(node):
     if isinstance(node, ast.Expression):
         return _safe_eval(node.body)
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-        return node.value
+        return _check_result(node.value)
     if isinstance(node, ast.BinOp) and type(node.op) in _OPERATORS:
-        return _OPERATORS[type(node.op)](_safe_eval(node.left), _safe_eval(node.right))
+        left = _safe_eval(node.left)
+        right = _safe_eval(node.right)
+        if isinstance(node.op, ast.Pow) and abs(right) > _MAX_EXPONENT:
+            raise ValueError("exponent too large")
+        return _check_result(_OPERATORS[type(node.op)](left, right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _OPERATORS:
-        return _OPERATORS[type(node.op)](_safe_eval(node.operand))
+        return _check_result(_OPERATORS[type(node.op)](_safe_eval(node.operand)))
     raise ValueError("unsupported expression")
 
 
 def _calculate(expression):
     try:
-        return str(_safe_eval(ast.parse(str(expression), mode="eval")))
-    except (ValueError, SyntaxError, TypeError, ZeroDivisionError) as exc:
+        expression = str(expression)
+        if len(expression) > _MAX_EXPRESSION_LENGTH:
+            raise ValueError("expression too long")
+        tree = ast.parse(expression, mode="eval")
+        if sum(1 for _ in ast.walk(tree)) > _MAX_AST_NODES:
+            raise ValueError("expression too complex")
+        return str(_safe_eval(tree))
+    except (ValueError, SyntaxError, TypeError, ZeroDivisionError, OverflowError) as exc:
         return f"error: {exc}"
 
 

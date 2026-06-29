@@ -8,17 +8,19 @@ Vercel rewrites ``/api/(.*)`` to this function (see vercel.json), and the
 FastAPI app routes on the original ``/api/...`` path.
 """
 
+import logging
 import os
 import sys
 
 # Make the repo-root `ornith_os` package importable from the serverless function.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, Request  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
 from ornith_os import agent, db  # noqa: E402
 
+logger = logging.getLogger("ornith_os")
 app = FastAPI(title="Ornith OS")
 
 DEFAULT_AGENT = "main"
@@ -26,6 +28,23 @@ DEFAULT_AGENT = "main"
 
 def _agent_id(request):
     return request.query_params.get("agent_id", DEFAULT_AGENT)
+
+
+def _auth(request):
+    """Optional shared-secret gate for mutating/cost-incurring routes.
+
+    Disabled by default. If ORNITH_API_TOKEN is set, callers must present it via
+    `Authorization: Bearer <token>` or the `X-API-Token` header.
+    """
+    expected = os.environ.get("ORNITH_API_TOKEN")
+    if not expected:
+        return
+    provided = request.headers.get("x-api-token") or ""
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        provided = provided or auth[7:]
+    if provided != expected:
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 def _ready():
@@ -39,14 +58,16 @@ def health():
     try:
         _ready()
         info["db"] = "ok"
-    except Exception as exc:  # noqa: BLE001 - surface config problems to the caller
-        info["db"] = f"error: {exc}"
+    except Exception:  # noqa: BLE001 - report status without leaking config details
+        logger.exception("Health check database readiness failed")
+        info["db"] = "error"
         info["ok"] = False
     return info
 
 
 @app.post("/api/chat")
 async def chat(request: Request):
+    _auth(request)
     _ready()
     data = await request.json()
     result = agent.run(
@@ -86,6 +107,7 @@ def get_config(request: Request):
 
 @app.post("/api/config")
 async def set_config(request: Request):
+    _auth(request)
     _ready()
     data = await request.json()
     agent.set_config(
@@ -102,6 +124,7 @@ def list_agents():
 
 @app.post("/api/agents")
 async def spawn_agent(request: Request):
+    _auth(request)
     _ready()
     data = await request.json()
     new_id = agent.spawn_agent(data.get("name", "agent"), data.get("instructions", ""))
@@ -110,11 +133,16 @@ async def spawn_agent(request: Request):
 
 @app.post("/api/schedule")
 async def schedule(request: Request):
+    _auth(request)
     _ready()
     data = await request.json()
-    agent.schedule_task(
-        _agent_id(request), data.get("prompt", ""), data.get("every_minutes", 60)
-    )
+    try:
+        every_minutes = int(data.get("every_minutes", 60))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="every_minutes must be an integer")
+    if every_minutes < 1:
+        raise HTTPException(status_code=400, detail="every_minutes must be at least 1")
+    agent.schedule_task(_agent_id(request), data.get("prompt", ""), every_minutes)
     return {"ok": True}
 
 
@@ -125,12 +153,16 @@ def tasks(request: Request):
 
 
 @app.post("/api/tick")
-def tick():
+def tick(request: Request):
     """Cron endpoint: run every scheduled task that is due."""
+    _auth(request)
     _ready()
     return {"ran": agent.run_due_tasks()}
 
 
 @app.exception_handler(Exception)
 async def on_error(request, exc):
-    return JSONResponse(status_code=500, content={"error": str(exc)})
+    if isinstance(exc, HTTPException):
+        return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+    logger.exception("Unhandled API error")
+    return JSONResponse(status_code=500, content={"error": "internal server error"})

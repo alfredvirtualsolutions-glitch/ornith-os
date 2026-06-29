@@ -11,7 +11,9 @@ let currentAgent = "main";
 const $ = (id) => document.getElementById(id);
 
 async function api(path, { method = "GET", body, agent = currentAgent } = {}) {
-  const url = `/api/${path}?agent_id=${encodeURIComponent(agent)}`;
+  // Merge agent_id into the path's existing query string (if any) safely.
+  const url = new URL(`/api/${path}`, window.location.origin);
+  url.searchParams.set("agent_id", agent);
   const res = await fetch(url, {
     method,
     headers: body ? { "Content-Type": "application/json" } : undefined,
@@ -36,7 +38,10 @@ async function loadAgents() {
   for (const a of agents) {
     const el = document.createElement("div");
     el.className = "agent-item" + (a.agent_id === currentAgent ? " active" : "");
-    el.innerHTML = `${a.name}<small>${a.agent_id}</small>`;
+    el.append(document.createTextNode(a.name));
+    const small = document.createElement("small");
+    small.textContent = a.agent_id;
+    el.appendChild(small);
     el.onclick = () => selectAgent(a.agent_id);
     list.appendChild(el);
   }
@@ -118,16 +123,21 @@ async function send() {
   const input = $("input");
   const text = input.value.trim();
   if (!text) return;
+  const agentAtSend = currentAgent;
   input.value = "";
   addMessage("user", text);
   const pending = addMessage("assistant", "…thinking");
   try {
     const data = await api("chat", {
       method: "POST",
+      agent: agentAtSend,
       body: { session_id: SESSION_ID, message: text },
     });
     pending.parentElement.remove();
-    addMessage("assistant", data.content, data.reasoning, data.steps, data.source);
+    // Drop the reply if the user switched agents while it was in flight.
+    if (currentAgent === agentAtSend) {
+      addMessage("assistant", data.content, data.reasoning, data.steps, data.source);
+    }
   } catch (e) {
     pending.textContent = "⚠️ " + e.message;
   }
@@ -151,9 +161,14 @@ async function loadTasks() {
     for (const t of data.tasks || []) {
       const el = document.createElement("div");
       el.className = "card";
-      el.innerHTML = `<b>${t.prompt}</b><div class="src">every ${t.every_minutes} min · next run ${new Date(
+      const title = document.createElement("b");
+      title.textContent = t.prompt;
+      const meta = document.createElement("div");
+      meta.className = "src";
+      meta.textContent = `every ${t.every_minutes} min · next run ${new Date(
         t.next_run,
-      ).toLocaleTimeString()}</div>`;
+      ).toLocaleTimeString()}`;
+      el.append(title, meta);
       list.appendChild(el);
     }
   } catch (_) {}

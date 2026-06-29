@@ -8,7 +8,7 @@ Each agent has persistent memory, sessions, configuration, scheduled tasks, and
 can spawn and delegate to other agents. State is stored in Neon and namespaced
 per agent.
 
-```
+```text
                          Cloudflare DNS
                                │  (points your domain at Vercel)
                                ▼
@@ -40,7 +40,7 @@ Browser ── dashboard (public/) ──► Vercel
 **Ornith-1.0 is a GPU model (9B–397B params).** Vercel functions don't host it —
 they call it. Serve Ornith yourself with vLLM/SGLang (see the Ornith model card),
 expose the OpenAI-compatible `/v1` endpoint over HTTPS, and set `ORNITH_BASE_URL`
-+ `ORNITH_API_KEY`. With no endpoint configured, the app still runs and the API
+and `ORNITH_API_KEY`. With no endpoint configured, the app still runs and the API
 works; chat replies with a "configure a model endpoint" notice.
 
 ## Features
@@ -54,7 +54,7 @@ works; chat replies with a "configure a model endpoint" notice.
 
 ## Project structure
 
-```
+```text
 api/
   index.py        # FastAPI app: /api/* routes
 ornith_os/

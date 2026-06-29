@@ -53,7 +53,7 @@
       button:hover { filter: brightness(1.05); }
       .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
       .tabs { display: flex; gap: 4px; padding: 12px 16px 0; border-bottom: 1px solid var(--border); }
-      .tab { padding: 8px 14px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 14px; }
+      .tab { padding: 8px 14px; cursor: pointer; color: var(--muted); border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; font-size: 14px; font-weight: 400; }
       .tab.active { color: var(--text); border-color: var(--accent); }
       .view { flex: 1; overflow-y: auto; padding: 20px; display: none; }
       .view.active { display: block; }
@@ -96,27 +96,27 @@
 
     <main class="main">
       <div class="tabs">
-        <div class="tab active" data-view="chatView">Chat</div>
-        <div class="tab" data-view="tasksView">Scheduled</div>
-        <div class="tab" data-view="configView">Config</div>
+        <button type="button" class="tab active" data-view="chatView">Chat</button>
+        <button type="button" class="tab" data-view="tasksView">Scheduled</button>
+        <button type="button" class="tab" data-view="configView">Config</button>
       </div>
 
       <section class="view active" id="chatView">
         <div id="chat"></div>
       </section>
       <div class="composer" id="composer">
-        <textarea id="input" rows="1" placeholder="Message the agent…"></textarea>
+        <textarea id="input" rows="1" aria-label="Message the agent" placeholder="Message the agent…"></textarea>
         <button id="sendBtn">Send</button>
       </div>
 
       <section class="view" id="tasksView">
         <div class="form">
           <h3>Schedule a recurring task</h3>
-          <label>Prompt the agent runs on a schedule</label>
+          <label for="taskPrompt">Prompt the agent runs on a schedule</label>
           <textarea id="taskPrompt" rows="2" placeholder="e.g. Summarize new activity"></textarea>
           <div class="row">
             <div>
-              <label>Every (minutes)</label>
+              <label for="taskEvery">Every (minutes)</label>
               <input id="taskEvery" type="number" value="60" min="1" />
             </div>
             <button id="addTaskBtn">Add task</button>
@@ -130,9 +130,9 @@
       <section class="view" id="configView">
         <div class="form">
           <h3>Agent configuration</h3>
-          <label>Name</label>
+          <label for="cfgName">Name</label>
           <input id="cfgName" />
-          <label>Instructions (system prompt)</label>
+          <label for="cfgInstructions">Instructions (system prompt)</label>
           <textarea id="cfgInstructions" rows="8"></textarea>
           <button id="saveCfgBtn">Save</button>
           <p class="src" id="srcLabel"></p>

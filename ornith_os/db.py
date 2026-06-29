@@ -28,10 +28,14 @@ _SCHEMA = [
     "id BIGSERIAL PRIMARY KEY, agent_id TEXT NOT NULL, session_id TEXT NOT NULL, "
     "role TEXT NOT NULL, content TEXT NOT NULL, reasoning TEXT DEFAULT '', "
     "created_at BIGINT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS messages_agent_session_id_desc_idx "
+    "ON messages (agent_id, session_id, id DESC)",
     "CREATE TABLE IF NOT EXISTS tasks ("
     "id BIGSERIAL PRIMARY KEY, agent_id TEXT NOT NULL, prompt TEXT NOT NULL, "
     "every_minutes INTEGER NOT NULL, next_run BIGINT NOT NULL, "
     "session_id TEXT NOT NULL DEFAULT 'scheduled', created_at BIGINT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS tasks_next_run_idx ON tasks (next_run)",
+    "CREATE INDEX IF NOT EXISTS tasks_agent_id_id_idx ON tasks (agent_id, id)",
 ]
 
 _schema_ready = False
