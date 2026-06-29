@@ -1,153 +1,155 @@
-# LLM Chat Application Template
+# Ornith OS
 
-A simple, ready-to-deploy chat application template powered by Cloudflare Workers AI. This template provides a clean starting point for building AI chat applications with streaming responses.
+A durable, multi-agent **"operating system"** for AI agents — built in **Python**
+on **Cloudflare Workers + Durable Objects**, with **Ornith-1.0** as the model
+"brain."
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/llm-chat-app-template)
+Each agent is a Durable Object with its own SQLite database, so its memory,
+sessions, configuration, and scheduled tasks are persistent and live at the
+edge. A single **Kernel** Durable Object acts as the process table / scheduler:
+it spawns agents, routes messages between them, and fans out the cron tick.
 
-<!-- dash-content-start -->
+```
+Browser ── dashboard (public/) ──┐
+                                  ▼
+        ┌──────────────────────────────────────┐
+        │  Worker entry (src/entry.py)          │  HTTP + cron router
+        └───────────────┬───────────────────────┘
+            per-agent    │            fleet
+                 ▼       │             ▼
+        ┌───────────────┐│   ┌──────────────────┐
+        │  Agent DO     ││   │  Kernel DO        │
+        │  (src/agent)  ││   │  (src/kernel)     │
+        │  • SQL memory ││   │  • agent registry │
+        │  • sessions   ││   │  • message routing│
+        │  • tool loop  ││   │  • cron fan-out   │
+        │  • alarms     ││   └──────────────────┘
+        └──────┬────────┘
+               ▼
+        ┌───────────────┐     OpenAI-compatible /v1
+        │ src/ornith.py │ ──▶  Ornith-1.0 (vLLM / SGLang)
+        │ model client  │ ──▶  Workers AI (fallback, no GPU)
+        └───────────────┘
+```
 
-## Demo
+## How the model works (important)
 
-This template demonstrates how to build an AI-powered chat interface using Cloudflare Workers AI with streaming responses. It features:
+**Ornith-1.0 is a GPU model (9B–397B params); Cloudflare does not host it.**
+Cloudflare runs the *agent runtime* — the durable state, sessions, scheduling,
+routing, and tools. The model itself runs wherever you serve it, exposing the
+OpenAI-compatible `/v1` API that Ornith provides under vLLM or SGLang.
 
-- Real-time streaming of AI responses using Server-Sent Events (SSE)
-- Easy customization of models and system prompts
-- Support for AI Gateway integration
-- Clean, responsive UI that works on mobile and desktop
+`src/ornith.py` calls that endpoint. If no endpoint is configured, it
+**transparently falls back to Cloudflare Workers AI**, so the whole OS runs
+end-to-end with zero GPU for local development and demos. Point it at a real
+Ornith server when you're ready — nothing else changes.
+
+### Serving Ornith-1.0 (the GPU side)
+
+On any machine with the required GPUs (per the Ornith model card):
+
+```bash
+MODEL=deepreinforce-ai/Ornith-1.0-397B   # or -9B / -35B (+ -FP8 for lower VRAM)
+vllm serve $MODEL \
+    --served-model-name Ornith-1.0 \
+    --tensor-parallel-size 8 \
+    --host 0.0.0.0 --port 8000 \
+    --max-model-len 262144 \
+    --enable-auto-tool-choice --tool-call-parser qwen3_xml \
+    --reasoning-parser qwen3 \
+    --trust-remote-code
+```
+
+Then expose it over HTTPS (a tunnel, a reverse proxy, or
+[Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/)) and give
+Ornith OS its URL.
 
 ## Features
 
-- 💬 Simple and responsive chat interface
-- ⚡ Server-Sent Events (SSE) for streaming responses
-- 🧠 Powered by Cloudflare Workers AI LLMs
-- 🛠️ Built with TypeScript and Cloudflare Workers
-- 📱 Mobile-friendly design
-- 🔄 Maintains chat history on the client
-- 🔎 Built-in Observability logging
-<!-- dash-content-end -->
+- 🧠 **Ornith-1.0 brain** over the OpenAI-compatible API, with reasoning
+  (`<think>` / `reasoning_content`) surfaced separately in the UI.
+- 💾 **Persistent state & sessions** — each agent has its own SQLite DB in a
+  Durable Object.
+- 💬 **Real-time chat** dashboard with reasoning and tool-step visibility.
+- ⏰ **Scheduled tasks** via Durable Object alarms + a 5-minute cron tick.
+- 🛠️ **Tool calling** — `get_time`, `calculate`, plus orchestration tools.
+- 🤖 **Multi-agent orchestration** — agents can `spawn_agent`, `send_to_agent`,
+  and `list_agents` through the Kernel.
 
-## Getting Started
+## Project structure
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) (v18 or newer)
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
-- A Cloudflare account with Workers AI access
-
-### Installation
-
-1. Clone this repository:
-
-   ```bash
-   git clone https://github.com/cloudflare/templates.git
-   cd templates/llm-chat-app
-   ```
-
-2. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-3. Generate Worker type definitions:
-   ```bash
-   npm run cf-typegen
-   ```
-
-### Development
-
-Start a local development server:
-
-```bash
-npm run dev
+```
+src/
+  entry.py    # Worker entrypoint: HTTP router + cron handler; exports DO classes
+  agent.py    # Agent Durable Object: memory, sessions, model loop, alarms
+  kernel.py   # Kernel Durable Object: registry, routing, cron fan-out
+  ornith.py   # Model client: Ornith /v1 with Workers AI fallback
+  tools.py    # Tool registry + dispatch
+public/
+  index.html  # Dashboard UI
+  chat.js     # Dashboard logic
+wrangler.jsonc
+.dev.vars.example
 ```
 
-This will start a local server at http://localhost:8787.
+## Getting started
 
-Note: Using Workers AI accesses your Cloudflare account even during local development, which will incur usage charges.
-
-### Deployment
-
-Deploy to Cloudflare Workers:
+Prerequisites: Node.js (for the Wrangler CLI) and a Cloudflare account with
+Workers AI enabled.
 
 ```bash
+npm install
+
+# Optional: point at a real Ornith endpoint (otherwise Workers AI is used).
+cp .dev.vars.example .dev.vars   # then fill in ORNITH_BASE_URL / ORNITH_API_KEY
+
+npm run dev                      # local dev at http://localhost:8787
+```
+
+### Configuration
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `ORNITH_BASE_URL` | `vars` / `.dev.vars` | Ornith `/v1` base URL. Empty ⇒ Workers AI fallback. |
+| `ORNITH_API_KEY` | **secret** | API key for the Ornith endpoint. |
+| `ORNITH_MODEL` | `vars` | Served model name (default `Ornith-1.0`). |
+| `ORNITH_FALLBACK_MODEL` | `vars` | Workers AI model used when no endpoint set. |
+| `ORNITH_TEMPERATURE` / `ORNITH_TOP_P` / `ORNITH_MAX_TOKENS` | `vars` | Sampling. |
+
+### Deploy
+
+```bash
+wrangler secret put ORNITH_API_KEY    # if using a real Ornith endpoint
 npm run deploy
 ```
 
-### Monitor
+## API
 
-View real-time logs associated with any deployed Worker:
+All per-agent routes accept `?agent_id=<id>` (default `main`).
 
-```bash
-npm wrangler tail
-```
+| Method & path | Description |
+| --- | --- |
+| `POST /api/chat` | `{session_id, message}` → run the agent, returns `{content, reasoning, steps, source}` |
+| `GET /api/history?session_id=` | Conversation history |
+| `GET /api/sessions` | Sessions for the agent |
+| `GET/POST /api/config` | Get / set the agent's name + instructions |
+| `POST /api/schedule` | `{prompt, every_minutes}` → recurring task |
+| `GET /api/tasks` | Scheduled tasks |
+| `GET /api/agents` | List agents (Kernel) |
+| `POST /api/agents` | `{name, instructions}` → spawn an agent (Kernel) |
+| `POST /api/tick` | Manually run due tasks across the fleet |
 
-## Project Structure
+## Notes & status
 
-```
-/
-├── public/             # Static assets
-│   ├── index.html      # Chat UI HTML
-│   └── chat.js         # Chat UI frontend script
-├── src/
-│   ├── index.ts        # Main Worker entry point
-│   └── types.ts        # TypeScript type definitions
-├── test/               # Test files
-├── wrangler.jsonc      # Cloudflare Worker configuration
-├── tsconfig.json       # TypeScript configuration
-└── README.md           # This documentation
-```
+- Targets the **Cloudflare Python Workers** runtime (Pyodide) with
+  **SQLite-backed Durable Objects**. Python Workers and Python DOs are a newer
+  Cloudflare surface; validate against your Wrangler version with
+  `npm run check` and a `wrangler dev` smoke test before relying on it.
+- The model client uses raw `fetch` against the OpenAI-compatible endpoint (no
+  `openai` Python SDK), which keeps it dependency-free inside Pyodide.
+- The dashboard uses the JSON HTTP API. A WebSocket transport can be layered on
+  the Agent DO later for token-level streaming.
 
-## How It Works
+## License
 
-### Backend
-
-The backend is built with Cloudflare Workers and uses the Workers AI platform to generate responses. The main components are:
-
-1. **API Endpoint** (`/api/chat`): Accepts POST requests with chat messages and streams responses
-2. **Streaming**: Uses Server-Sent Events (SSE) for real-time streaming of AI responses
-3. **Workers AI Binding**: Connects to Cloudflare's AI service via the Workers AI binding
-
-### Frontend
-
-The frontend is a simple HTML/CSS/JavaScript application that:
-
-1. Presents a chat interface
-2. Sends user messages to the API
-3. Processes streaming responses in real-time
-4. Maintains chat history on the client side
-
-## Customization
-
-### Changing the Model
-
-To use a different AI model, update the `MODEL_ID` constant in `src/index.ts`. You can find available models in the [Cloudflare Workers AI documentation](https://developers.cloudflare.com/workers-ai/models/).
-
-### Using AI Gateway
-
-The template includes commented code for AI Gateway integration, which provides additional capabilities like rate limiting, caching, and analytics.
-
-To enable AI Gateway:
-
-1. [Create an AI Gateway](https://dash.cloudflare.com/?to=/:account/ai/ai-gateway) in your Cloudflare dashboard
-2. Uncomment the gateway configuration in `src/index.ts`
-3. Replace `YOUR_GATEWAY_ID` with your actual AI Gateway ID
-4. Configure other gateway options as needed:
-   - `skipCache`: Set to `true` to bypass gateway caching
-   - `cacheTtl`: Set the cache time-to-live in seconds
-
-Learn more about [AI Gateway](https://developers.cloudflare.com/ai-gateway/).
-
-### Modifying the System Prompt
-
-The default system prompt can be changed by updating the `SYSTEM_PROMPT` constant in `src/index.ts`.
-
-### Styling
-
-The UI styling is contained in the `<style>` section of `public/index.html`. You can modify the CSS variables at the top to quickly change the color scheme.
-
-## Resources
-
-- [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
-- [Cloudflare Workers AI Documentation](https://developers.cloudflare.com/workers-ai/)
-- [Workers AI Models](https://developers.cloudflare.com/workers-ai/models/)
+MIT.

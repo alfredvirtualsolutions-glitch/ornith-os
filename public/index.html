@@ -1,183 +1,145 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>LLM Chat App</title>
-		<style>
-			:root {
-				--primary-color: #f6821f;
-				--primary-hover: #e67e22;
-				--light-bg: #f9fafb;
-				--border-color: #e5e7eb;
-				--text-color: #1f2937;
-				--text-light: #6b7280;
-				--user-msg-bg: #fff2e6;
-				--assistant-msg-bg: #f3f4f6;
-			}
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ornith OS</title>
+    <style>
+      :root {
+        --accent: #fd8e5b;
+        --bg: #14110f;
+        --panel: #1d1916;
+        --panel-2: #262019;
+        --border: #3a2f26;
+        --text: #f3ede7;
+        --muted: #a99c8f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        height: 100vh;
+        display: flex;
+      }
+      a { color: var(--accent); }
+      .sidebar {
+        width: 260px;
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        gap: 12px;
+      }
+      .brand { font-size: 20px; font-weight: 700; }
+      .brand span { color: var(--accent); }
+      .brand small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+      .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 8px; }
+      .agent-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; flex: 1; }
+      .agent-item {
+        padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px;
+        border: 1px solid transparent;
+      }
+      .agent-item:hover { background: var(--panel-2); }
+      .agent-item.active { background: var(--panel-2); border-color: var(--accent); }
+      .agent-item small { display: block; color: var(--muted); font-size: 11px; }
+      button {
+        background: var(--accent); color: #1a120c; border: none; border-radius: 8px;
+        padding: 9px 12px; font-weight: 600; cursor: pointer; font-size: 13px;
+      }
+      button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+      button:hover { filter: brightness(1.05); }
+      .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+      .tabs { display: flex; gap: 4px; padding: 12px 16px 0; border-bottom: 1px solid var(--border); }
+      .tab { padding: 8px 14px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 14px; }
+      .tab.active { color: var(--text); border-color: var(--accent); }
+      .view { flex: 1; overflow-y: auto; padding: 20px; display: none; }
+      .view.active { display: block; }
+      #chat { display: flex; flex-direction: column; gap: 14px; max-width: 820px; margin: 0 auto; }
+      .msg { display: flex; flex-direction: column; gap: 4px; }
+      .msg .who { font-size: 11px; color: var(--muted); }
+      .bubble { padding: 12px 14px; border-radius: 12px; white-space: pre-wrap; line-height: 1.5; }
+      .user .bubble { background: var(--accent); color: #1a120c; align-self: flex-end; max-width: 80%; }
+      .assistant .bubble { background: var(--panel-2); border: 1px solid var(--border); }
+      .reasoning {
+        font-size: 12px; color: var(--muted); border-left: 2px solid var(--border);
+        padding: 6px 10px; margin-top: 6px; white-space: pre-wrap; display: none;
+      }
+      .reasoning.show { display: block; }
+      .toggle-reasoning { font-size: 11px; color: var(--accent); cursor: pointer; }
+      .steps { font-size: 12px; color: var(--muted); margin-top: 4px; }
+      .composer { display: flex; gap: 8px; padding: 16px; border-top: 1px solid var(--border); max-width: 820px; margin: 0 auto; width: 100%; }
+      .composer textarea {
+        flex: 1; resize: none; background: var(--panel-2); color: var(--text);
+        border: 1px solid var(--border); border-radius: 10px; padding: 10px; font: inherit;
+      }
+      .form { max-width: 620px; display: flex; flex-direction: column; gap: 12px; }
+      .form label { font-size: 13px; color: var(--muted); }
+      .form input, .form textarea {
+        width: 100%; background: var(--panel-2); color: var(--text);
+        border: 1px solid var(--border); border-radius: 8px; padding: 9px; font: inherit;
+      }
+      .row { display: flex; gap: 10px; align-items: flex-end; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+      .src { font-size: 10px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">Ornith<span>OS</span><small>durable agent runtime</small></div>
+      <div class="section-label">Agents</div>
+      <div class="agent-list" id="agentList"></div>
+      <button class="ghost" id="spawnBtn">+ Spawn agent</button>
+    </aside>
 
-			* {
-				box-sizing: border-box;
-				margin: 0;
-				padding: 0;
-			}
+    <main class="main">
+      <div class="tabs">
+        <div class="tab active" data-view="chatView">Chat</div>
+        <div class="tab" data-view="tasksView">Scheduled</div>
+        <div class="tab" data-view="configView">Config</div>
+      </div>
 
-			body {
-				font-family:
-					-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-					Cantarell, sans-serif;
-				line-height: 1.6;
-				color: var(--text-color);
-				max-width: 800px;
-				margin: 0 auto;
-				padding: 1rem;
-			}
+      <section class="view active" id="chatView">
+        <div id="chat"></div>
+      </section>
+      <div class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="Message the agent…"></textarea>
+        <button id="sendBtn">Send</button>
+      </div>
 
-			header {
-				text-align: center;
-				margin-bottom: 2rem;
-				padding: 1rem 0;
-				border-bottom: 1px solid var(--border-color);
-			}
+      <section class="view" id="tasksView">
+        <div class="form">
+          <h3>Schedule a recurring task</h3>
+          <label>Prompt the agent runs on a schedule</label>
+          <textarea id="taskPrompt" rows="2" placeholder="e.g. Summarize new activity"></textarea>
+          <div class="row">
+            <div>
+              <label>Every (minutes)</label>
+              <input id="taskEvery" type="number" value="60" min="1" />
+            </div>
+            <button id="addTaskBtn">Add task</button>
+          </div>
+          <p class="src">Cron ticks every 5 minutes; due tasks run then.</p>
+          <h3>Scheduled tasks</h3>
+          <div id="taskList"></div>
+        </div>
+      </section>
 
-			h1 {
-				font-size: 1.5rem;
-				color: var(--primary-color);
-			}
+      <section class="view" id="configView">
+        <div class="form">
+          <h3>Agent configuration</h3>
+          <label>Name</label>
+          <input id="cfgName" />
+          <label>Instructions (system prompt)</label>
+          <textarea id="cfgInstructions" rows="8"></textarea>
+          <button id="saveCfgBtn">Save</button>
+          <p class="src" id="srcLabel"></p>
+        </div>
+      </section>
+    </main>
 
-			.chat-container {
-				display: flex;
-				flex-direction: column;
-				height: calc(100vh - 200px);
-				min-height: 400px;
-				border: 1px solid var(--border-color);
-				border-radius: 8px;
-				overflow: hidden;
-			}
-
-			.chat-messages {
-				flex: 1;
-				overflow-y: auto;
-				padding: 1rem;
-				background-color: var(--light-bg);
-			}
-
-			.message {
-				margin-bottom: 1rem;
-				padding: 0.75rem;
-				border-radius: 8px;
-				max-width: 80%;
-			}
-
-			.message p {
-				white-space: pre-line;
-				margin: 0;
-				overflow-wrap: anywhere;
-			}
-
-			.user-message {
-				background-color: var(--user-msg-bg);
-				align-self: flex-end;
-				margin-left: auto;
-			}
-
-			.assistant-message {
-				background-color: var(--assistant-msg-bg);
-				align-self: flex-start;
-			}
-
-			.message-input {
-				display: flex;
-				padding: 0.75rem;
-				border-top: 1px solid var(--border-color);
-				background-color: white;
-			}
-
-			#user-input {
-				flex: 1;
-				padding: 0.75rem;
-				border: 1px solid var(--border-color);
-				border-radius: 4px;
-				font-family: inherit;
-				resize: none;
-				min-height: 44px;
-			}
-
-			#send-button {
-				margin-left: 0.5rem;
-				padding: 0 1rem;
-				background-color: var(--primary-color);
-				color: white;
-				border: none;
-				border-radius: 4px;
-				cursor: pointer;
-				transition: background-color 0.2s;
-			}
-
-			#send-button:hover {
-				background-color: var(--primary-hover);
-			}
-
-			#send-button:disabled {
-				background-color: var(--text-light);
-				cursor: not-allowed;
-			}
-
-			.typing-indicator {
-				display: none;
-				font-style: italic;
-				color: var(--text-light);
-				padding: 1rem;
-			}
-
-			.typing-indicator.visible {
-				display: block;
-			}
-
-			footer {
-				margin-top: 1rem;
-				text-align: center;
-				font-size: 0.85rem;
-				color: var(--text-light);
-			}
-		</style>
-	</head>
-	<body>
-		<header>
-			<h1>Cloudflare AI Chat</h1>
-			<p>Powered by Cloudflare Workers AI</p>
-		</header>
-
-		<div class="chat-container">
-			<div id="chat-messages" class="chat-messages">
-				<div class="message assistant-message">
-					<p>
-						Hello! I'm an LLM chat app powered by Cloudflare Workers AI. How can
-						I help you today?
-					</p>
-				</div>
-			</div>
-
-			<div class="typing-indicator" id="typing-indicator">
-				AI is thinking...
-			</div>
-
-			<div class="message-input">
-				<textarea
-					id="user-input"
-					placeholder="Type your message here..."
-					rows="1"
-					autofocus
-				></textarea>
-				<button id="send-button">Send</button>
-			</div>
-		</div>
-
-		<footer>
-			<p>Cloudflare Workers AI Chat Template &copy; 2025</p>
-		</footer>
-
-		<!-- Chat app script -->
-		<script src="chat.js"></script>
-	</body>
+    <script src="chat.js"></script>
+  </body>
 </html>

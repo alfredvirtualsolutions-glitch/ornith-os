@@ -1,13 +1,21 @@
 /**
- * For more details on how to configure Wrangler, refer to:
- * https://developers.cloudflare.com/workers/wrangler/configuration/
+ * Ornith OS — a durable agent runtime on Cloudflare Python Workers.
+ *
+ * The Worker entrypoint is Python (src/entry.py). Durable, per-agent state
+ * lives in the `Agent` Durable Object; multi-agent orchestration lives in the
+ * `Kernel` Durable Object. Both are SQLite-backed so each instance gets its own
+ * local SQL database.
+ *
+ * https://developers.cloudflare.com/workers/languages/python/
+ * https://developers.cloudflare.com/durable-objects/
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "ornith-os",
-	"main": "src/index.ts",
+	"main": "src/entry.py",
 	"compatibility_date": "2025-10-08",
-	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	// python_workers enables the Pyodide-based Python runtime.
+	"compatibility_flags": ["python_workers"],
 	"assets": {
 		"binding": "ASSETS",
 		"directory": "./public"
@@ -15,8 +23,37 @@
 	"observability": {
 		"enabled": true
 	},
+	// Workers AI binding — used as the local-dev / fallback model when no
+	// Ornith endpoint is configured.
 	"ai": {
 		"binding": "AI"
 	},
-	"upload_source_maps": true
+	// Non-secret configuration. The Ornith API key is a SECRET — set it with
+	// `wrangler secret put ORNITH_API_KEY` (see README). Leave ORNITH_BASE_URL
+	// empty to run entirely on Workers AI.
+	"vars": {
+		"ORNITH_BASE_URL": "",
+		"ORNITH_MODEL": "Ornith-1.0",
+		"ORNITH_FALLBACK_MODEL": "@cf/meta/llama-3.1-8b-instruct-fp8",
+		"ORNITH_TEMPERATURE": "0.6",
+		"ORNITH_TOP_P": "0.95",
+		"ORNITH_MAX_TOKENS": "2048"
+	},
+	"durable_objects": {
+		"bindings": [
+			{ "name": "AGENT", "class_name": "Agent" },
+			{ "name": "KERNEL", "class_name": "Kernel" }
+		]
+	},
+	// SQLite-backed Durable Objects (required for the local SQL storage API).
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["Agent", "Kernel"]
+		}
+	],
+	// Cron: every 5 minutes the Kernel ticks scheduled agents.
+	"triggers": {
+		"crons": ["*/5 * * * *"]
+	}
 }
