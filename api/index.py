@@ -139,7 +139,9 @@ async def schedule(request: Request):
     try:
         every_minutes = int(data.get("every_minutes", 60))
     except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="every_minutes must be an integer")
+        raise HTTPException(
+            status_code=400, detail="every_minutes must be an integer"
+        ) from None
     if every_minutes < 1:
         raise HTTPException(status_code=400, detail="every_minutes must be at least 1")
     agent.schedule_task(_agent_id(request), data.get("prompt", ""), every_minutes)
@@ -160,9 +162,13 @@ def tick(request: Request):
     return {"ran": agent.run_due_tasks()}
 
 
+@app.exception_handler(HTTPException)
+async def on_http_error(request, exc):
+    # Normalize client errors (auth/validation) to the {"error": ...} shape.
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+
+
 @app.exception_handler(Exception)
 async def on_error(request, exc):
-    if isinstance(exc, HTTPException):
-        return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
     logger.exception("Unhandled API error")
     return JSONResponse(status_code=500, content={"error": "internal server error"})
