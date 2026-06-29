@@ -1,230 +1,221 @@
 /**
- * LLM Chat App Frontend
+ * Ornith OS dashboard frontend.
  *
- * Handles the chat UI interactions and communication with the backend API.
+ * Talks to the FastAPI JSON API on Vercel. Every request carries ?agent_id= so
+ * the backend routes it to the right agent (state in Neon). Default agent: "main".
  */
 
-// DOM elements
-const chatMessages = document.getElementById("chat-messages");
-const userInput = document.getElementById("user-input");
-const sendButton = document.getElementById("send-button");
-const typingIndicator = document.getElementById("typing-indicator");
+const SESSION_ID = "web";
+let currentAgent = "main";
 
-// Chat state
-let chatHistory = [
-	{
-		role: "assistant",
-		content:
-			"Hello! I'm an LLM chat app powered by Cloudflare Workers AI. How can I help you today?",
-	},
-];
-let isProcessing = false;
+const $ = (id) => document.getElementById(id);
 
-// Auto-resize textarea as user types
-userInput.addEventListener("input", function () {
-	this.style.height = "auto";
-	this.style.height = this.scrollHeight + "px";
+async function api(path, { method = "GET", body, agent = currentAgent } = {}) {
+  // Merge agent_id into the path's existing query string (if any) safely.
+  const url = new URL(`/api/${path}`, window.location.origin);
+  url.searchParams.set("agent_id", agent);
+  const res = await fetch(url, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  return res.json();
+}
+
+// --- Agents sidebar ----------------------------------------------------------
+
+async function loadAgents() {
+  const list = $("agentList");
+  list.innerHTML = "";
+  // The default "main" agent is always present.
+  const agents = [{ agent_id: "main", name: "main" }];
+  try {
+    const data = await api("agents");
+    for (const a of data.agents || []) agents.push(a);
+  } catch (_) {}
+
+  for (const a of agents) {
+    const el = document.createElement("div");
+    el.className = "agent-item" + (a.agent_id === currentAgent ? " active" : "");
+    el.append(document.createTextNode(a.name));
+    const small = document.createElement("small");
+    small.textContent = a.agent_id;
+    el.appendChild(small);
+    el.onclick = () => selectAgent(a.agent_id);
+    list.appendChild(el);
+  }
+}
+
+async function selectAgent(id) {
+  currentAgent = id;
+  await loadAgents();
+  await loadHistory();
+  await loadConfig();
+  await loadTasks();
+}
+
+$("spawnBtn").onclick = async () => {
+  const name = prompt("Agent name?");
+  if (!name) return;
+  const instructions =
+    prompt("Instructions / role for this agent?") || "You are a helpful specialist agent.";
+  const data = await api("agents", { method: "POST", body: { name, instructions } });
+  await selectAgent(data.agent_id);
+};
+
+// --- Chat --------------------------------------------------------------------
+
+function addMessage(role, content, reasoning, steps, source) {
+  const chat = $("chat");
+  const wrap = document.createElement("div");
+  wrap.className = `msg ${role}`;
+
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = role === "user" ? "You" : `${currentAgent}${source ? " · " + source : ""}`;
+  wrap.appendChild(who);
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = content;
+  wrap.appendChild(bubble);
+
+  if (steps && steps.length) {
+    const s = document.createElement("div");
+    s.className = "steps";
+    s.textContent = "🔧 " + steps.map((t) => `${t.tool}() → ${t.output}`).join("  ·  ");
+    wrap.appendChild(s);
+  }
+
+  if (reasoning) {
+    const toggle = document.createElement("div");
+    toggle.className = "toggle-reasoning";
+    toggle.textContent = "▸ reasoning";
+    const r = document.createElement("div");
+    r.className = "reasoning";
+    r.textContent = reasoning;
+    toggle.onclick = () => {
+      r.classList.toggle("show");
+      toggle.textContent = r.classList.contains("show") ? "▾ reasoning" : "▸ reasoning";
+    };
+    wrap.appendChild(toggle);
+    wrap.appendChild(r);
+  }
+
+  chat.appendChild(wrap);
+  chat.scrollIntoView(false);
+  wrap.scrollIntoView({ behavior: "smooth", block: "end" });
+  return bubble;
+}
+
+async function loadHistory() {
+  $("chat").innerHTML = "";
+  try {
+    const data = await api(`history?session_id=${SESSION_ID}`);
+    for (const m of data.messages || []) {
+      addMessage(m.role, m.content, m.reasoning);
+    }
+  } catch (_) {}
+}
+
+async function send() {
+  const input = $("input");
+  const text = input.value.trim();
+  if (!text) return;
+  const agentAtSend = currentAgent;
+  input.value = "";
+  addMessage("user", text);
+  const pending = addMessage("assistant", "…thinking");
+  try {
+    const data = await api("chat", {
+      method: "POST",
+      agent: agentAtSend,
+      body: { session_id: SESSION_ID, message: text },
+    });
+    pending.parentElement.remove();
+    // Drop the reply if the user switched agents while it was in flight.
+    if (currentAgent === agentAtSend) {
+      addMessage("assistant", data.content, data.reasoning, data.steps, data.source);
+    }
+  } catch (e) {
+    pending.textContent = "⚠️ " + e.message;
+  }
+}
+
+$("sendBtn").onclick = send;
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
 });
 
-// Send message on Enter (without Shift)
-userInput.addEventListener("keydown", function (e) {
-	if (e.key === "Enter" && !e.shiftKey) {
-		e.preventDefault();
-		sendMessage();
-	}
+// --- Scheduled tasks ---------------------------------------------------------
+
+async function loadTasks() {
+  try {
+    const data = await api("tasks");
+    const list = $("taskList");
+    list.innerHTML = "";
+    for (const t of data.tasks || []) {
+      const el = document.createElement("div");
+      el.className = "card";
+      const title = document.createElement("b");
+      title.textContent = t.prompt;
+      const meta = document.createElement("div");
+      meta.className = "src";
+      meta.textContent = `every ${t.every_minutes} min · next run ${new Date(
+        t.next_run,
+      ).toLocaleTimeString()}`;
+      el.append(title, meta);
+      list.appendChild(el);
+    }
+  } catch (_) {}
+}
+
+$("addTaskBtn").onclick = async () => {
+  const prompt = $("taskPrompt").value.trim();
+  if (!prompt) return;
+  await api("schedule", {
+    method: "POST",
+    body: { prompt, every_minutes: Number($("taskEvery").value) || 60 },
+  });
+  $("taskPrompt").value = "";
+  await loadTasks();
+};
+
+// --- Config ------------------------------------------------------------------
+
+async function loadConfig() {
+  try {
+    const data = await api("config");
+    $("cfgName").value = data.name || "";
+    $("cfgInstructions").value = data.instructions || "";
+  } catch (_) {}
+}
+
+$("saveCfgBtn").onclick = async () => {
+  await api("config", {
+    method: "POST",
+    body: { name: $("cfgName").value, instructions: $("cfgInstructions").value },
+  });
+  $("srcLabel").textContent = "Saved.";
+  await loadAgents();
+};
+
+// --- Tabs --------------------------------------------------------------------
+
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.onclick = () => {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+    tab.classList.add("active");
+    $(tab.dataset.view).classList.add("active");
+    $("composer").style.display = tab.dataset.view === "chatView" ? "flex" : "none";
+  };
 });
 
-// Send button click handler
-sendButton.addEventListener("click", sendMessage);
+// --- Init --------------------------------------------------------------------
 
-/**
- * Sends a message to the chat API and processes the response
- */
-async function sendMessage() {
-	const message = userInput.value.trim();
-
-	// Don't send empty messages
-	if (message === "" || isProcessing) return;
-
-	// Disable input while processing
-	isProcessing = true;
-	userInput.disabled = true;
-	sendButton.disabled = true;
-
-	// Add user message to chat
-	addMessageToChat("user", message);
-
-	// Clear input
-	userInput.value = "";
-	userInput.style.height = "auto";
-
-	// Show typing indicator
-	typingIndicator.classList.add("visible");
-
-	// Add message to history
-	chatHistory.push({ role: "user", content: message });
-
-	try {
-		// Create new assistant response element
-		const assistantMessageEl = document.createElement("div");
-		assistantMessageEl.className = "message assistant-message";
-		assistantMessageEl.innerHTML = "<p></p>";
-		chatMessages.appendChild(assistantMessageEl);
-		const assistantTextEl = assistantMessageEl.querySelector("p");
-
-		// Scroll to bottom
-		chatMessages.scrollTop = chatMessages.scrollHeight;
-
-		// Send request to API
-		const response = await fetch("/api/chat", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				messages: chatHistory,
-			}),
-		});
-
-		// Handle errors
-		if (!response.ok) {
-			throw new Error("Failed to get response");
-		}
-		if (!response.body) {
-			throw new Error("Response body is null");
-		}
-
-		// Process streaming response
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-		let responseText = "";
-		let buffer = "";
-		const flushAssistantText = () => {
-			assistantTextEl.textContent = responseText;
-			chatMessages.scrollTop = chatMessages.scrollHeight;
-		};
-
-		let sawDone = false;
-		while (true) {
-			const { done, value } = await reader.read();
-
-			if (done) {
-				// Process any remaining complete events in buffer
-				const parsed = consumeSseEvents(buffer + "\n\n");
-				for (const data of parsed.events) {
-					if (data === "[DONE]") {
-						break;
-					}
-					try {
-						const jsonData = JSON.parse(data);
-						// Handle both Workers AI format (response) and OpenAI format (choices[0].delta.content)
-						let content = "";
-						if (
-							typeof jsonData.response === "string" &&
-							jsonData.response.length > 0
-						) {
-							content = jsonData.response;
-						} else if (jsonData.choices?.[0]?.delta?.content) {
-							content = jsonData.choices[0].delta.content;
-						}
-						if (content) {
-							responseText += content;
-							flushAssistantText();
-						}
-					} catch (e) {
-						console.error("Error parsing SSE data as JSON:", e, data);
-					}
-				}
-				break;
-			}
-
-			// Decode chunk
-			buffer += decoder.decode(value, { stream: true });
-			const parsed = consumeSseEvents(buffer);
-			buffer = parsed.buffer;
-			for (const data of parsed.events) {
-				if (data === "[DONE]") {
-					sawDone = true;
-					buffer = "";
-					break;
-				}
-				try {
-					const jsonData = JSON.parse(data);
-					// Handle both Workers AI format (response) and OpenAI format (choices[0].delta.content)
-					let content = "";
-					if (
-						typeof jsonData.response === "string" &&
-						jsonData.response.length > 0
-					) {
-						content = jsonData.response;
-					} else if (jsonData.choices?.[0]?.delta?.content) {
-						content = jsonData.choices[0].delta.content;
-					}
-					if (content) {
-						responseText += content;
-						flushAssistantText();
-					}
-				} catch (e) {
-					console.error("Error parsing SSE data as JSON:", e, data);
-				}
-			}
-			if (sawDone) {
-				break;
-			}
-		}
-
-		// Add completed response to chat history
-		if (responseText.length > 0) {
-			chatHistory.push({ role: "assistant", content: responseText });
-		}
-	} catch (error) {
-		console.error("Error:", error);
-		addMessageToChat(
-			"assistant",
-			"Sorry, there was an error processing your request.",
-		);
-	} finally {
-		// Hide typing indicator
-		typingIndicator.classList.remove("visible");
-
-		// Re-enable input
-		isProcessing = false;
-		userInput.disabled = false;
-		sendButton.disabled = false;
-		userInput.focus();
-	}
-}
-
-/**
- * Helper function to add message to chat
- */
-function addMessageToChat(role, content) {
-	const messageEl = document.createElement("div");
-	messageEl.className = `message ${role}-message`;
-	messageEl.innerHTML = `<p>${content}</p>`;
-	chatMessages.appendChild(messageEl);
-
-	// Scroll to bottom
-	chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-function consumeSseEvents(buffer) {
-	let normalized = buffer.replace(/\r/g, "");
-	const events = [];
-	let eventEndIndex;
-	while ((eventEndIndex = normalized.indexOf("\n\n")) !== -1) {
-		const rawEvent = normalized.slice(0, eventEndIndex);
-		normalized = normalized.slice(eventEndIndex + 2);
-
-		const lines = rawEvent.split("\n");
-		const dataLines = [];
-		for (const line of lines) {
-			if (line.startsWith("data:")) {
-				dataLines.push(line.slice("data:".length).trimStart());
-			}
-		}
-		if (dataLines.length === 0) continue;
-		events.push(dataLines.join("\n"));
-	}
-	return { events, buffer: normalized };
-}
+selectAgent("main");

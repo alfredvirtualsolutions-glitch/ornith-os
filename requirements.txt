@@ -1,0 +1,7 @@
+# Floors (not exact pins) so the resolver pulls a patched Starlette.
+# fastapi==0.115.6 capped Starlette <0.42.0, which still allowed vulnerable
+# 0.41.3 (GHSA-7f5h-v6xp-fcq8 et al.); a recent FastAPI permits Starlette >=0.47.
+fastapi>=0.118.0
+starlette>=0.47.2
+psycopg2-binary>=2.9.10
+requests>=2.32.3
