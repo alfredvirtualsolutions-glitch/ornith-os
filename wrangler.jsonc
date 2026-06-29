@@ -1,13 +1,12 @@
 /**
- * Ornith OS — a durable agent runtime on Cloudflare Python Workers.
+ * Ornith OS — a multi-agent runtime on Cloudflare Python Workers.
  *
- * The Worker entrypoint is Python (src/entry.py). Durable, per-agent state
- * lives in the `Agent` Durable Object; multi-agent orchestration lives in the
- * `Kernel` Durable Object. Both are SQLite-backed so each instance gets its own
- * local SQL database.
+ * State lives in a single D1 (SQLite) database, namespaced per agent. This keeps
+ * the whole OS on the Workers Free plan (no Durable Objects required). Scheduled
+ * tasks run from the cron trigger, which scans D1 for due work.
  *
  * https://developers.cloudflare.com/workers/languages/python/
- * https://developers.cloudflare.com/durable-objects/
+ * https://developers.cloudflare.com/d1/
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -28,6 +27,14 @@
 	"ai": {
 		"binding": "AI"
 	},
+	// D1 database — durable per-agent state (memory, sessions, tasks, registry).
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "ornith-os-db",
+			"database_id": "66450d66-dd77-4822-b60b-509900a0e721"
+		}
+	],
 	// Non-secret configuration. The Ornith API key is a SECRET — set it with
 	// `wrangler secret put ORNITH_API_KEY` (see README). Leave ORNITH_BASE_URL
 	// empty to run entirely on Workers AI.
@@ -39,20 +46,7 @@
 		"ORNITH_TOP_P": "0.95",
 		"ORNITH_MAX_TOKENS": "2048"
 	},
-	"durable_objects": {
-		"bindings": [
-			{ "name": "AGENT", "class_name": "Agent" },
-			{ "name": "KERNEL", "class_name": "Kernel" }
-		]
-	},
-	// SQLite-backed Durable Objects (required for the local SQL storage API).
-	"migrations": [
-		{
-			"tag": "v1",
-			"new_sqlite_classes": ["Agent", "Kernel"]
-		}
-	],
-	// Cron: every 5 minutes the Kernel ticks scheduled agents.
+	// Cron: every 5 minutes, run any scheduled agent tasks that are due.
 	"triggers": {
 		"crons": ["*/5 * * * *"]
 	}

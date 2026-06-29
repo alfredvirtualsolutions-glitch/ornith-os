@@ -4,32 +4,31 @@ A durable, multi-agent **"operating system"** for AI agents — built in **Pytho
 on **Cloudflare Workers + Durable Objects**, with **Ornith-1.0** as the model
 "brain."
 
-Each agent is a Durable Object with its own SQLite database, so its memory,
-sessions, configuration, and scheduled tasks are persistent and live at the
-edge. A single **Kernel** Durable Object acts as the process table / scheduler:
-it spawns agents, routes messages between them, and fans out the cron tick.
+All agent state lives in a single **D1 (SQLite) database**, namespaced per
+agent: memory, sessions, configuration, the agent registry, and scheduled tasks.
+This keeps the whole runtime on the Cloudflare **Workers Free plan** — no Durable
+Objects required. The agent logic runs in-process in the Worker, and scheduled
+work is driven by the cron trigger, which scans D1 for due tasks.
 
 ```
 Browser ── dashboard (public/) ──┐
                                   ▼
         ┌──────────────────────────────────────┐
         │  Worker entry (src/entry.py)          │  HTTP + cron router
-        └───────────────┬───────────────────────┘
-            per-agent    │            fleet
-                 ▼       │             ▼
-        ┌───────────────┐│   ┌──────────────────┐
-        │  Agent DO     ││   │  Kernel DO        │
-        │  (src/agent)  ││   │  (src/kernel)     │
-        │  • SQL memory ││   │  • agent registry │
-        │  • sessions   ││   │  • message routing│
-        │  • tool loop  ││   │  • cron fan-out   │
-        │  • alarms     ││   └──────────────────┘
-        └──────┬────────┘
-               ▼
-        ┌───────────────┐     OpenAI-compatible /v1
-        │ src/ornith.py │ ──▶  Ornith-1.0 (vLLM / SGLang)
-        │ model client  │ ──▶  Workers AI (fallback, no GPU)
-        └───────────────┘
+        └───────────────┬──────────────────────┘
+                        ▼
+        ┌──────────────────────────────────────┐
+        │  agent_core.py                        │  in-process agent logic
+        │  • model loop + tool calling          │
+        │  • sessions / memory                  │
+        │  • spawn / route / list agents        │
+        │  • scheduled tasks (cron-driven)      │
+        └───────┬───────────────────┬───────────┘
+                ▼                   ▼
+        ┌──────────────┐    ┌───────────────┐   OpenAI-compatible /v1
+        │ store.py (D1)│    │ src/ornith.py │ ─▶ Ornith-1.0 (vLLM / SGLang)
+        │ all state    │    │ model client  │ ─▶ Workers AI (fallback, no GPU)
+        └──────────────┘    └───────────────┘
 ```
 
 ## How the model works (important)
@@ -68,26 +67,26 @@ Ornith OS its URL.
 
 - 🧠 **Ornith-1.0 brain** over the OpenAI-compatible API, with reasoning
   (`<think>` / `reasoning_content`) surfaced separately in the UI.
-- 💾 **Persistent state & sessions** — each agent has its own SQLite DB in a
-  Durable Object.
+- 💾 **Persistent state & sessions** — D1-backed, namespaced per agent.
 - 💬 **Real-time chat** dashboard with reasoning and tool-step visibility.
-- ⏰ **Scheduled tasks** via Durable Object alarms + a 5-minute cron tick.
+- ⏰ **Scheduled tasks** — recurring prompts run by the 5-minute cron tick.
 - 🛠️ **Tool calling** — `get_time`, `calculate`, plus orchestration tools.
 - 🤖 **Multi-agent orchestration** — agents can `spawn_agent`, `send_to_agent`,
-  and `list_agents` through the Kernel.
+  and `list_agents`.
+- 📊 **Frontend analytics** — Vercel Web Analytics snippet in the dashboard.
 
 ## Project structure
 
 ```
 src/
-  entry.py    # Worker entrypoint: HTTP router + cron handler; exports DO classes
-  agent.py    # Agent Durable Object: memory, sessions, model loop, alarms
-  kernel.py   # Kernel Durable Object: registry, routing, cron fan-out
-  ornith.py   # Model client: Ornith /v1 with Workers AI fallback
-  tools.py    # Tool registry + dispatch
+  entry.py       # Worker entrypoint: HTTP router + cron handler
+  agent_core.py  # In-process agent logic: model loop, sessions, orchestration, tasks
+  store.py       # D1 storage layer (schema + queries)
+  ornith.py      # Model client: Ornith /v1 with Workers AI fallback
+  tools.py       # Tool registry + dispatch
 public/
-  index.html  # Dashboard UI
-  chat.js     # Dashboard logic
+  index.html     # Dashboard UI (+ Vercel Web Analytics snippet)
+  chat.js        # Dashboard logic
 wrangler.jsonc
 .dev.vars.example
 ```
@@ -118,10 +117,17 @@ npm run dev                      # local dev at http://localhost:8787
 
 ### Deploy
 
+The D1 database `ornith-os-db` is already referenced in `wrangler.jsonc`. If you
+need to recreate it in your own account, run `wrangler d1 create ornith-os-db`
+and paste the returned `database_id` into `wrangler.jsonc`.
+
 ```bash
 wrangler secret put ORNITH_API_KEY    # if using a real Ornith endpoint
 npm run deploy
 ```
+
+Schema tables are created automatically on first request (and on the first cron
+tick), so there's no separate migration step.
 
 ## API
 
@@ -135,20 +141,28 @@ All per-agent routes accept `?agent_id=<id>` (default `main`).
 | `GET/POST /api/config` | Get / set the agent's name + instructions |
 | `POST /api/schedule` | `{prompt, every_minutes}` → recurring task |
 | `GET /api/tasks` | Scheduled tasks |
-| `GET /api/agents` | List agents (Kernel) |
-| `POST /api/agents` | `{name, instructions}` → spawn an agent (Kernel) |
-| `POST /api/tick` | Manually run due tasks across the fleet |
+| `GET /api/agents` | List all agents |
+| `POST /api/agents` | `{name, instructions}` → spawn an agent |
+| `POST /api/tick` | Manually run due scheduled tasks |
+
+## Analytics
+
+The dashboard includes the **Vercel Web Analytics** script. Because the frontend
+is served by the Cloudflare Worker (not Vercel), the script loads from Vercel's
+CDN; full reporting requires the domain to be registered as a Vercel project with
+Web Analytics enabled. To switch to a native option, replace the snippet in
+`public/index.html` with [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/).
 
 ## Notes & status
 
-- Targets the **Cloudflare Python Workers** runtime (Pyodide) with
-  **SQLite-backed Durable Objects**. Python Workers and Python DOs are a newer
-  Cloudflare surface; validate against your Wrangler version with
-  `npm run check` and a `wrangler dev` smoke test before relying on it.
+- Targets the **Cloudflare Python Workers** runtime (Pyodide) with **D1** for
+  state — no Durable Objects, so it runs on the Workers Free plan. Python Workers
+  are a newer Cloudflare surface; validate with `npm run check`
+  (`wrangler deploy --dry-run`) and a `wrangler dev` smoke test.
 - The model client uses raw `fetch` against the OpenAI-compatible endpoint (no
   `openai` Python SDK), which keeps it dependency-free inside Pyodide.
-- The dashboard uses the JSON HTTP API. A WebSocket transport can be layered on
-  the Agent DO later for token-level streaming.
+- The dashboard uses the JSON HTTP API; per-agent state is namespaced by
+  `agent_id` in the shared D1 database.
 
 ## License
 
