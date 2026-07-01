@@ -1,0 +1,663 @@
+:root {
+	--orange: #e8b81a;
+	--orange-bright: #ffcf3f;
+	--amber: #f6a623;
+	--bg-void: #05060a;
+	--bg-panel: rgba(20, 18, 14, 0.72);
+	--bg-panel-solid: #14120e;
+	--border-soft: rgba(232, 184, 26, 0.25);
+	--text-main: #f2e9d8;
+	--text-dim: #a89e88;
+	--danger: #ff5c5c;
+	--ok: #5cffa0;
+	font-size: 15px;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+	background: var(--bg-void);
+	color: var(--text-main);
+	font-family: "SF Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+	overflow: hidden;
+}
+
+/* ---------- Boot screen ---------- */
+
+#boot-screen {
+	position: fixed;
+	inset: 0;
+	background: radial-gradient(ellipse at center, #120d05 0%, #05060a 70%);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	z-index: 100;
+	animation: boot-fade-out 0.6s ease 2.6s forwards;
+}
+
+#boot-screen.hide {
+	pointer-events: none;
+}
+
+#boot-logo {
+	color: var(--orange);
+	font-size: 0.62rem;
+	line-height: 1.15;
+	text-shadow: 0 0 18px rgba(232, 184, 26, 0.55);
+	white-space: pre;
+	margin: 0;
+	animation: flicker-in 1.1s ease-in;
+}
+
+#boot-subtitle {
+	color: var(--amber);
+	letter-spacing: 0.15em;
+	margin-top: 0.5rem;
+	font-size: 0.75rem;
+	opacity: 0.85;
+}
+
+#boot-log {
+	margin-top: 2rem;
+	color: var(--text-dim);
+	font-size: 0.78rem;
+	min-height: 4.5em;
+	text-align: left;
+}
+
+#boot-log div {
+	animation: line-in 0.25s ease both;
+}
+
+@keyframes line-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes flicker-in {
+	0% {
+		opacity: 0;
+	}
+	10% {
+		opacity: 0.4;
+	}
+	14% {
+		opacity: 0.05;
+	}
+	20% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
+@keyframes boot-fade-out {
+	to {
+		opacity: 0;
+		visibility: hidden;
+	}
+}
+
+/* ---------- Desktop ---------- */
+
+#desktop {
+	position: fixed;
+	inset: 0;
+	background:
+		radial-gradient(1200px 800px at 15% -10%, rgba(232, 184, 26, 0.08), transparent 60%),
+		radial-gradient(900px 700px at 100% 100%, rgba(246, 166, 35, 0.06), transparent 60%),
+		var(--bg-void);
+}
+
+#desktop-icons {
+	position: absolute;
+	top: 1.5rem;
+	left: 1.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: 1.4rem;
+	z-index: 5;
+}
+
+.desktop-icon {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.4rem;
+	width: 84px;
+	cursor: pointer;
+	color: var(--text-main);
+	background: transparent;
+	border: none;
+	font-family: inherit;
+	padding: 0.4rem;
+	border-radius: 10px;
+	transition: background 0.15s ease;
+}
+
+.desktop-icon:hover,
+.desktop-icon:focus-visible {
+	background: rgba(232, 184, 26, 0.1);
+}
+
+.desktop-icon .icon-glyph {
+	font-size: 1.9rem;
+	filter: drop-shadow(0 0 8px rgba(232, 184, 26, 0.35));
+}
+
+.desktop-icon .icon-label {
+	font-size: 0.68rem;
+	text-align: center;
+	color: var(--text-dim);
+}
+
+#windows-layer {
+	position: absolute;
+	inset: 0;
+}
+
+/* ---------- Windows ---------- */
+
+.os-window {
+	position: absolute;
+	min-width: 320px;
+	min-height: 220px;
+	background: var(--bg-panel);
+	backdrop-filter: blur(18px);
+	-webkit-backdrop-filter: blur(18px);
+	border: 1px solid var(--border-soft);
+	border-radius: 12px;
+	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.os-window.focused {
+	border-color: rgba(232, 184, 26, 0.55);
+	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(232, 184, 26, 0.15);
+}
+
+.os-window.minimized {
+	display: none;
+}
+
+.os-window.maximized {
+	inset: 0 !important;
+	width: 100% !important;
+	height: calc(100% - 48px) !important;
+	border-radius: 0;
+}
+
+.window-titlebar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.7rem;
+	background: linear-gradient(180deg, rgba(232, 184, 26, 0.12), transparent);
+	border-bottom: 1px solid var(--border-soft);
+	cursor: move;
+	user-select: none;
+}
+
+.window-titlebar .title-icon {
+	font-size: 0.95rem;
+}
+
+.window-titlebar .title-text {
+	flex: 1;
+	font-size: 0.78rem;
+	color: var(--text-main);
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.window-controls {
+	display: flex;
+	gap: 0.4rem;
+}
+
+.window-controls button {
+	width: 13px;
+	height: 13px;
+	border-radius: 50%;
+	border: none;
+	cursor: pointer;
+	padding: 0;
+}
+
+.btn-min {
+	background: #e8b81a;
+}
+.btn-max {
+	background: #5cffa0;
+}
+.btn-close {
+	background: #ff5c5c;
+}
+
+.window-content {
+	flex: 1;
+	overflow: auto;
+	padding: 0.9rem;
+	font-size: 0.85rem;
+}
+
+.resize-handle {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 16px;
+	height: 16px;
+	cursor: nwse-resize;
+}
+
+/* ---------- Taskbar ---------- */
+
+#taskbar {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 48px;
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	padding: 0 0.7rem;
+	background: rgba(10, 9, 7, 0.85);
+	backdrop-filter: blur(14px);
+	border-top: 1px solid var(--border-soft);
+	z-index: 50;
+}
+
+#start-button {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	background: rgba(232, 184, 26, 0.12);
+	color: var(--orange-bright);
+	border: 1px solid var(--border-soft);
+	border-radius: 8px;
+	padding: 0.4rem 0.8rem;
+	font-family: inherit;
+	font-weight: 700;
+	font-size: 0.78rem;
+	cursor: pointer;
+}
+
+#start-button:hover {
+	background: rgba(232, 184, 26, 0.22);
+}
+
+.logo-glyph {
+	font-size: 1rem;
+}
+
+#taskbar-apps {
+	flex: 1;
+	display: flex;
+	gap: 0.4rem;
+	overflow-x: auto;
+}
+
+.taskbar-app {
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid transparent;
+	color: var(--text-dim);
+	border-radius: 7px;
+	padding: 0.35rem 0.7rem;
+	font-family: inherit;
+	font-size: 0.72rem;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.taskbar-app.active {
+	color: var(--orange-bright);
+	border-color: var(--border-soft);
+	background: rgba(232, 184, 26, 0.1);
+}
+
+#taskbar-right {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	color: var(--text-dim);
+	font-size: 0.75rem;
+}
+
+.conn-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--danger);
+	box-shadow: 0 0 6px currentColor;
+	display: inline-block;
+}
+
+.conn-dot.connected {
+	background: var(--ok);
+}
+
+/* ---------- Start menu ---------- */
+
+#start-menu {
+	position: fixed;
+	left: 0.7rem;
+	bottom: 56px;
+	width: 220px;
+	background: var(--bg-panel);
+	backdrop-filter: blur(18px);
+	border: 1px solid var(--border-soft);
+	border-radius: 12px;
+	padding: 0.5rem;
+	z-index: 60;
+	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+
+#start-menu button {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	width: 100%;
+	background: transparent;
+	border: none;
+	color: var(--text-main);
+	font-family: inherit;
+	font-size: 0.8rem;
+	padding: 0.55rem 0.6rem;
+	border-radius: 8px;
+	cursor: pointer;
+	text-align: left;
+}
+
+#start-menu button:hover {
+	background: rgba(232, 184, 26, 0.12);
+}
+
+/* ---------- Toasts ---------- */
+
+#toast-layer {
+	position: fixed;
+	top: 1rem;
+	right: 1rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	z-index: 200;
+	width: 300px;
+}
+
+.toast {
+	background: var(--bg-panel-solid);
+	border: 1px solid var(--border-soft);
+	border-left: 3px solid var(--orange);
+	border-radius: 8px;
+	padding: 0.65rem 0.8rem;
+	font-size: 0.75rem;
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+	animation: toast-in 0.25s ease;
+}
+
+.toast .toast-title {
+	color: var(--orange-bright);
+	font-weight: 700;
+	margin-bottom: 0.2rem;
+}
+
+@keyframes toast-in {
+	from {
+		opacity: 0;
+		transform: translateX(20px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+/* ---------- Shared app widgets ---------- */
+
+.app-root {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	gap: 0.6rem;
+}
+
+.btn {
+	background: rgba(232, 184, 26, 0.14);
+	color: var(--orange-bright);
+	border: 1px solid var(--border-soft);
+	border-radius: 6px;
+	padding: 0.4rem 0.7rem;
+	font-family: inherit;
+	font-size: 0.72rem;
+	cursor: pointer;
+}
+
+.btn:hover {
+	background: rgba(232, 184, 26, 0.24);
+}
+
+.btn.danger {
+	color: var(--danger);
+}
+
+input,
+textarea,
+select {
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid var(--border-soft);
+	color: var(--text-main);
+	border-radius: 6px;
+	padding: 0.45rem 0.6rem;
+	font-family: inherit;
+	font-size: 0.78rem;
+}
+
+textarea {
+	resize: vertical;
+}
+
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+::-webkit-scrollbar-thumb {
+	background: rgba(232, 184, 26, 0.3);
+	border-radius: 4px;
+}
+
+/* ---------- Terminal app ---------- */
+
+.term-log {
+	flex: 1;
+	overflow-y: auto;
+	background: rgba(0, 0, 0, 0.3);
+	border-radius: 8px;
+	padding: 0.7rem;
+	font-size: 0.78rem;
+	line-height: 1.5;
+}
+
+.term-line {
+	margin-bottom: 0.6rem;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.term-line .tag {
+	font-weight: 700;
+	margin-right: 0.4rem;
+}
+
+.tag-you {
+	color: var(--amber);
+}
+.tag-thought {
+	color: var(--orange);
+}
+.tag-action {
+	color: var(--amber);
+}
+.tag-observe {
+	color: var(--ok);
+}
+.tag-final {
+	color: var(--orange-bright);
+}
+.tag-error {
+	color: var(--danger);
+}
+
+.term-input-row {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.term-input-row textarea {
+	flex: 1;
+	min-height: 42px;
+}
+
+/* ---------- File manager ---------- */
+
+.fm-layout {
+	display: flex;
+	gap: 0.7rem;
+	flex: 1;
+	min-height: 0;
+}
+
+.fm-list {
+	width: 40%;
+	overflow-y: auto;
+	background: rgba(0, 0, 0, 0.25);
+	border-radius: 8px;
+	padding: 0.4rem;
+}
+
+.fm-entry {
+	padding: 0.35rem 0.5rem;
+	border-radius: 6px;
+	cursor: pointer;
+	font-size: 0.76rem;
+	display: flex;
+	justify-content: space-between;
+	gap: 0.4rem;
+}
+
+.fm-entry:hover {
+	background: rgba(232, 184, 26, 0.1);
+}
+
+.fm-editor {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.fm-editor textarea {
+	flex: 1;
+}
+
+.fm-toolbar {
+	display: flex;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+}
+
+/* ---------- Monitor / dashboard ---------- */
+
+.stat-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	gap: 0.6rem;
+}
+
+.stat-card {
+	background: rgba(255, 255, 255, 0.03);
+	border: 1px solid var(--border-soft);
+	border-radius: 8px;
+	padding: 0.6rem 0.7rem;
+}
+
+.stat-card .stat-value {
+	font-size: 1.2rem;
+	color: var(--orange-bright);
+	font-weight: 700;
+}
+
+.stat-card .stat-label {
+	font-size: 0.68rem;
+	color: var(--text-dim);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.bar-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 0.72rem;
+	margin-bottom: 0.35rem;
+}
+
+.bar-track {
+	flex: 1;
+	height: 8px;
+	background: rgba(255, 255, 255, 0.06);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.bar-fill {
+	height: 100%;
+	background: linear-gradient(90deg, var(--amber), var(--orange-bright));
+}
+
+/* ---------- Task scheduler ---------- */
+
+.task-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem;
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.03);
+	margin-bottom: 0.4rem;
+	font-size: 0.74rem;
+}
+
+.task-form {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 0.5rem;
+}
+
+.task-form .full {
+	grid-column: 1 / -1;
+}
+
+.muted {
+	color: var(--text-dim);
+	font-size: 0.72rem;
+}
