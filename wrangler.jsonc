@@ -18,5 +18,13 @@
 	"ai": {
 		"binding": "AI"
 	},
+	"durable_objects": {
+		"bindings": [
+			{ "name": "VOIDCLAW_CORE", "class_name": "VoidClawCore" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["VoidClawCore"] }
+	],
 	"upload_source_maps": true
 }
